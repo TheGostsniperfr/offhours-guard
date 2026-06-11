@@ -42,7 +42,7 @@
                     <!-- Title & Badge -->
                     <div class="flex items-center justify-between mb-4">
                         <div>
-                            <h3 class="text-lg font-bold text-white">{{ .Name }}</h3>
+                            <h3 class="text-lg font-bold text-white">{{ .ScheduleName }}</h3>
                             <span class="text-xs text-slate-500 font-medium uppercase tracking-wider">{{ .Namespace }}</span>
                         </div>
                         
@@ -50,18 +50,30 @@
                         {{ if or (eq .State "SLEEPING") (eq .State "MANUAL_SLEEP") }}
                         <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-800/80 text-slate-400 border border-slate-700 flex items-center space-x-1.5">
                             <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
-                            <span>Asleep (0/0)</span>
+                            <span>Asleep</span>
                         </span>
                         {{ else }}
                         <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center space-x-1.5">
                             <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                            <span>Active ({{ .CurrentReplicas }}/{{ .OriginalReplicas }})</span>
+                            <span>Active</span>
                         </span>
                         {{ end }}
                     </div>
 
+                    <div class="space-y-2.5 mb-5 bg-slate-950/40 p-3.5 rounded-lg border border-slate-800/80">
+                        <span class="text-xs text-slate-500 font-semibold uppercase tracking-wider block mb-1">Target Deployments</span>
+                        {{ range .Targets }}
+                        <div class="flex justify-between items-center text-sm">
+                            <span class="text-slate-300 font-medium">{{ .Name }}</span>
+                            <span class="text-xs font-mono bg-slate-800/60 px-2 py-0.5 rounded text-slate-400 border border-slate-700/50">
+                                {{ .CurrentReplicas }}/{{ .OriginalReplicas }}
+                            </span>
+                        </div>
+                        {{ end }}
+                    </div>
+
                     <!-- Cron details -->
-                    <div class="space-y-3 mt-6 border-t border-slate-800/60 pt-4">
+                    <div class="space-y-3 mt-4 border-t border-slate-800/60 pt-4">
                         <div class="flex justify-between text-sm">
                             <span class="text-slate-500">Sleep Cron</span>
                             <span class="font-mono text-slate-300">{{ .SleepAt }}</span>
@@ -80,14 +92,14 @@
                 <!-- Action Footer -->
                 <div class="bg-slate-950/40 border-t border-slate-800/60 p-4 flex space-x-3">
                     {{ if or (eq .State "SLEEPING") (eq .State "MANUAL_SLEEP") }}
-                    <button hx-post="/apps/{{ .Namespace }}/{{ .Name }}/wake" 
+                    <button hx-post="/apps/{{ .Namespace }}/{{ .ScheduleName }}/wake" 
                             hx-target="body"
                             class="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 text-sm font-bold py-2.5 px-4 rounded-lg shadow-lg hover:shadow-emerald-500/10 transition duration-300 flex items-center justify-center space-x-1">
                         <span>☀️</span>
                         <span>Wake Up Now</span>
                     </button>
                     {{ else }}
-                    <button hx-post="/apps/{{ .Namespace }}/{{ .Name }}/sleep" 
+                    <button hx-post="/apps/{{ .Namespace }}/{{ .ScheduleName }}/sleep" 
                             hx-target="body"
                             class="flex-1 bg-slate-800 hover:bg-slate-700 text-white text-sm font-bold py-2.5 px-4 rounded-lg border border-slate-700 transition duration-300 flex items-center justify-center space-x-1">
                         <span>💤</span>

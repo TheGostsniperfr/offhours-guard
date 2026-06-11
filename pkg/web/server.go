@@ -59,15 +59,21 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 	return srv.ListenAndServe()
 }
 
-type AppCardData struct {
+// 🟢 New sub-structure to hold target details
+type TargetDetail struct {
 	Name             string
-	Namespace        string
-	State            string
 	OriginalReplicas int32
 	CurrentReplicas  int32
-	SleepAt          string
-	WakeAt           string
-	Timezone         string
+}
+
+type AppCardData struct {
+	ScheduleName string 
+	Namespace    string
+	State        string
+	SleepAt      string
+	WakeAt       string
+	Timezone     string
+	Targets      []TargetDetail 
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -87,6 +93,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			origMap[ts.Name] = ts.OriginalReplicas
 		}
 
+		var targets []TargetDetail
 		for _, ref := range sch.Spec.TargetRefs {
 			var deploy appsv1.Deployment
 			_ = s.k8sClient.Get(ctx, types.NamespacedName{Namespace: sch.Namespace, Name: ref.Name}, &deploy)
@@ -101,17 +108,22 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 				orig = current
 			}
 
-			cards = append(cards, AppCardData{
+			targets = append(targets, TargetDetail{
 				Name:             ref.Name,
-				Namespace:        sch.Namespace,
-				State:            sch.Status.CurrentState,
 				OriginalReplicas: orig,
 				CurrentReplicas:  current,
-				SleepAt:          sch.Spec.SleepAt,
-				WakeAt:           sch.Spec.WakeAt,
-				Timezone:         sch.Spec.Timezone,
 			})
 		}
+
+		cards = append(cards, AppCardData{
+			ScheduleName: sch.Name,
+			Namespace:    sch.Namespace,
+			State:        sch.Status.CurrentState,
+			SleepAt:      sch.Spec.SleepAt,
+			WakeAt:       sch.Spec.WakeAt,
+			Timezone:     sch.Spec.Timezone,
+			Targets:      targets,
+		})
 	}
 
 	w.Header().Set("Content-Type", "text/html")
@@ -170,17 +182,17 @@ func (s *Server) handleSleepOverride(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) triggerManualAction(w http.ResponseWriter, r *http.Request, action string) {
 	ctx := r.Context()
-	name := r.PathValue("name")
+	scheduleName := r.PathValue("name") 
 	namespace := r.PathValue("namespace")
 
-	schedule, err := s.findScheduleForTarget(ctx, namespace, name)
-	if err == nil {
+	var schedule v1alpha1.OffhoursSchedule
+	if err := s.k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: scheduleName}, &schedule); err == nil {
 		if action == "sleep" {
 			schedule.Status.CurrentState = "MANUAL_SLEEP"
 		} else {
 			schedule.Status.CurrentState = "MANUAL_WAKE"
 		}
-		_ = s.k8sClient.Status().Update(ctx, schedule)
+		_ = s.k8sClient.Status().Update(ctx, &schedule)
 	}
 
 	time.Sleep(300 * time.Millisecond)
