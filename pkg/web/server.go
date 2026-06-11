@@ -59,7 +59,7 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 	return srv.ListenAndServe()
 }
 
-// 🟢 New sub-structure to hold target details
+// Sub-structure to hold target details
 type TargetDetail struct {
 	Name             string
 	OriginalReplicas int32
@@ -87,7 +87,6 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	var cards []AppCardData
 	for _, sch := range schedules.Items {
-		// Helper map to find original replicas per target
 		origMap := make(map[string]int32)
 		for _, ts := range sch.Status.TargetStatuses {
 			origMap[ts.Name] = ts.OriginalReplicas
@@ -130,6 +129,29 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	_ = s.templates.ExecuteTemplate(w, "index.html", cards)
 }
 
+// 🟢 RESTAURÉ : Le handler du proxy Gatus
+func (s *Server) handleGatusProxy(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	name := r.PathValue("name")
+	namespace := r.PathValue("namespace")
+
+	schedule, err := s.findScheduleForTarget(ctx, namespace, name)
+	if err != nil {
+		s.checkRealAppHealth(w, r, name, namespace)
+		return
+	}
+
+	if schedule.Status.CurrentState == "SLEEPING" || schedule.Status.CurrentState == "MANUAL_SLEEP" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"SLEEPING","info":"Service is stopped on schedule (Managed by Offhours-Guard)"}`))
+		return
+	}
+
+	s.checkRealAppHealth(w, r, name, namespace)
+}
+
+// 🟢 UNIQUE : Le check de santé avec extraction du port (?port=)
 func (s *Server) checkRealAppHealth(w http.ResponseWriter, r *http.Request, name, namespace string) {
 	port := r.URL.Query().Get("port")
 	if port == "" {
@@ -137,27 +159,6 @@ func (s *Server) checkRealAppHealth(w http.ResponseWriter, r *http.Request, name
 	}
 
 	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:%s", name, namespace, port)
-	
-	if r.Host == "localhost:8082" || r.Host == "127.0.0.1:8082" {
-		url = fmt.Sprintf("https://%s.3istor.com", name)
-	}
-
-	clientHttp := http.Client{Timeout: 3 * time.Second}
-	resp, err := clientHttp.Get(url)
-
-	w.Header().Set("Content-Type", "application/json")
-	if err != nil || resp.StatusCode >= 500 {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte(`{"status":"UNHEALTHY","error":"App is down or unreachable"}`))
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(`{"status":"HEALTHY","info":"App is running fine"}`))
-}
-
-func (s *Server) checkRealAppHealth(w http.ResponseWriter, r *http.Request, name, namespace string) {
-	url := fmt.Sprintf("http://%s.%s.svc.cluster.local", name, namespace)
 	
 	if r.Host == "localhost:8082" || r.Host == "127.0.0.1:8082" {
 		url = fmt.Sprintf("https://%s.3istor.com", name)
@@ -187,17 +188,17 @@ func (s *Server) handleSleepOverride(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) triggerManualAction(w http.ResponseWriter, r *http.Request, action string) {
 	ctx := r.Context()
-	scheduleName := r.PathValue("name") 
+	name := r.PathValue("name")
 	namespace := r.PathValue("namespace")
 
-	var schedule v1alpha1.OffhoursSchedule
-	if err := s.k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: scheduleName}, &schedule); err == nil {
+	schedule, err := s.findScheduleForTarget(ctx, namespace, name)
+	if err == nil {
 		if action == "sleep" {
 			schedule.Status.CurrentState = "MANUAL_SLEEP"
 		} else {
 			schedule.Status.CurrentState = "MANUAL_WAKE"
 		}
-		_ = s.k8sClient.Status().Update(ctx, &schedule)
+		_ = s.k8sClient.Status().Update(ctx, schedule)
 	}
 
 	time.Sleep(300 * time.Millisecond)
