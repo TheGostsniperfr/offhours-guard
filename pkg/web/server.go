@@ -35,11 +35,9 @@ func NewServer(k8sClient client.Client) *Server {
 	}
 }
 
-// Start launches the Go 1.26+ enhanced HTTP router
 func (s *Server) Start(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
 
-	// Pro Go 1.26 Routing syntax
 	mux.HandleFunc("GET /", s.handleDashboard)
 	mux.HandleFunc("GET /health/{namespace}/{name}", s.handleGatusProxy)
 	mux.HandleFunc("POST /apps/{namespace}/{name}/wake", s.handleWakeOverride)
@@ -83,24 +81,37 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	var cards []AppCardData
 	for _, sch := range schedules.Items {
-		var deploy appsv1.Deployment
-		_ = s.k8sClient.Get(ctx, types.NamespacedName{Namespace: sch.Namespace, Name: sch.Spec.TargetRef.Name}, &deploy)
-
-		current := int32(0)
-		if deploy.Spec.Replicas != nil {
-			current = *deploy.Spec.Replicas
+		// Helper map to find original replicas per target
+		origMap := make(map[string]int32)
+		for _, ts := range sch.Status.TargetStatuses {
+			origMap[ts.Name] = ts.OriginalReplicas
 		}
 
-		cards = append(cards, AppCardData{
-			Name:             sch.Spec.TargetRef.Name,
-			Namespace:        sch.Namespace,
-			State:            sch.Status.CurrentState,
-			OriginalReplicas: sch.Status.OriginalReplicas,
-			CurrentReplicas:  current,
-			SleepAt:          sch.Spec.SleepAt,
-			WakeAt:           sch.Spec.WakeAt,
-			Timezone:         sch.Spec.Timezone,
-		})
+		for _, ref := range sch.Spec.TargetRefs {
+			var deploy appsv1.Deployment
+			_ = s.k8sClient.Get(ctx, types.NamespacedName{Namespace: sch.Namespace, Name: ref.Name}, &deploy)
+
+			current := int32(0)
+			if deploy.Spec.Replicas != nil {
+				current = *deploy.Spec.Replicas
+			}
+
+			orig := origMap[ref.Name]
+			if orig == 0 {
+				orig = current
+			}
+
+			cards = append(cards, AppCardData{
+				Name:             ref.Name,
+				Namespace:        sch.Namespace,
+				State:            sch.Status.CurrentState,
+				OriginalReplicas: orig,
+				CurrentReplicas:  current,
+				SleepAt:          sch.Spec.SleepAt,
+				WakeAt:           sch.Spec.WakeAt,
+				Timezone:         sch.Spec.Timezone,
+			})
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/html")
@@ -112,32 +123,25 @@ func (s *Server) handleGatusProxy(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	namespace := r.PathValue("namespace")
 
-	var schedule v1alpha1.OffhoursSchedule
-	err := s.k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name + "-schedule"}, &schedule)
-
-	// If no schedule exists, we simply report actual app health
+	schedule, err := s.findScheduleForTarget(ctx, namespace, name)
 	if err != nil {
 		s.checkRealAppHealth(w, r, name, namespace)
 		return
 	}
 
-	// 1. If the app is scheduled to sleep, we tell Gatus that everything is fine (Honest 200 OK)
-	if schedule.Status.CurrentState == "SLEEPING" {
+	if schedule.Status.CurrentState == "SLEEPING" || schedule.Status.CurrentState == "MANUAL_SLEEP" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"SLEEPING","info":"Service is stopped on schedule (Managed by Offhours-Guard)"}`))
 		return
 	}
 
-	// 2. Otherwise, we check if the actual app is healthy and running
 	s.checkRealAppHealth(w, r, name, namespace)
 }
 
 func (s *Server) checkRealAppHealth(w http.ResponseWriter, r *http.Request, name, namespace string) {
-	// Querying the internal Kubernetes Service address of the app
 	url := fmt.Sprintf("http://%s.%s.svc.cluster.local", name, namespace)
 	
-	// Fallback to public domain during local development outside of the K3s cluster
 	if r.Host == "localhost:8082" || r.Host == "127.0.0.1:8082" {
 		url = fmt.Sprintf("https://%s.3istor.com", name)
 	}
@@ -169,20 +173,34 @@ func (s *Server) triggerManualAction(w http.ResponseWriter, r *http.Request, act
 	name := r.PathValue("name")
 	namespace := r.PathValue("namespace")
 
-	// Update the CRD State to MANUAL_SLEEP or MANUAL_WAKE. 
-	var schedule v1alpha1.OffhoursSchedule
-	if err := s.k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name + "-schedule"}, &schedule); err == nil {
+	schedule, err := s.findScheduleForTarget(ctx, namespace, name)
+	if err == nil {
 		if action == "sleep" {
 			schedule.Status.CurrentState = "MANUAL_SLEEP"
 		} else {
 			schedule.Status.CurrentState = "MANUAL_WAKE"
 		}
-		_ = s.k8sClient.Status().Update(ctx, &schedule)
+		_ = s.k8sClient.Status().Update(ctx, schedule)
 	}
 
-	// Let Kubernetes process the state change event
 	time.Sleep(300 * time.Millisecond)
-
 	w.Header().Set("HX-Redirect", "/")
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) findScheduleForTarget(ctx context.Context, namespace, targetName string) (*v1alpha1.OffhoursSchedule, error) {
+	var list v1alpha1.OffhoursScheduleList
+	if err := s.k8sClient.List(ctx, &list, client.InNamespace(namespace)); err != nil {
+		return nil, err
+	}
+
+	for _, sch := range list.Items {
+		for _, ref := range sch.Spec.TargetRefs {
+			if ref.Name == targetName {
+				return &sch, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("no schedule found managing target %s", targetName)
 }

@@ -12,16 +12,21 @@ type TargetRef struct {
 	Name string `json:"name"`
 }
 
+type TargetStatus struct {
+	Name             string `json:"name"`
+	OriginalReplicas int32  `json:"originalReplicas"`
+}
+
 type OffhoursScheduleSpec struct {
-	TargetRef TargetRef `json:"targetRef"`
-	SleepAt   string    `json:"sleepAt"`
-	WakeAt    string    `json:"wakeAt"`
-	Timezone  string    `json:"timezone,omitempty"`
+	TargetRefs []TargetRef `json:"targetRefs"`
+	SleepAt    string      `json:"sleepAt"`
+	WakeAt     string      `json:"wakeAt"`
+	Timezone   string      `json:"timezone,omitempty"`
 }
 
 type OffhoursScheduleStatus struct {
-	CurrentState     string `json:"currentState,omitempty"`
-	OriginalReplicas int32  `json:"originalReplicas,omitempty"`
+	CurrentState   string         `json:"currentState,omitempty"`
+	TargetStatuses []TargetStatus `json:"targetStatuses,omitempty"`
 }
 
 type OffhoursSchedule struct {
@@ -40,6 +45,14 @@ type OffhoursScheduleList struct {
 
 func (in *OffhoursSchedule) DeepCopyObject() runtime.Object {
 	out := *in
+	if in.Spec.TargetRefs != nil {
+		out.Spec.TargetRefs = make([]TargetRef, len(in.Spec.TargetRefs))
+		copy(out.Spec.TargetRefs, in.Spec.TargetRefs)
+	}
+	if in.Status.TargetStatuses != nil {
+		out.Status.TargetStatuses = make([]TargetStatus, len(in.Status.TargetStatuses))
+		copy(out.Status.TargetStatuses, in.Status.TargetStatuses)
+	}
 	return &out
 }
 

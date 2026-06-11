@@ -24,13 +24,6 @@ func (r *OffhoursScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	var deployment appsv1.Deployment
-	depName := types.NamespacedName{Namespace: req.Namespace, Name: schedule.Spec.TargetRef.Name}
-	if err := r.Get(ctx, depName, &deployment); err != nil {
-		log.Printf("[WARN] Deployment %s not found. Retrying in 30s.", depName.Name)
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-	}
-
 	tz := schedule.Spec.Timezone
 	if tz == "" {
 		tz = "Europe/Paris"
@@ -48,12 +41,10 @@ func (r *OffhoursScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	nextSleep := sleepCron.Next(now)
 	nextWake := wakeCron.Next(now)
 
-	// Check if a cron boundary was reached exactly during the current minute
 	oneMinuteAgo := currentMinute.Add(-1 * time.Minute)
 	sleepTriggered := sleepCron.Next(oneMinuteAgo).Equal(currentMinute)
 	wakeTriggered := wakeCron.Next(oneMinuteAgo).Equal(currentMinute)
 
-	// Determine desired state
 	desiredState := schedule.Status.CurrentState
 
 	if sleepTriggered {
@@ -63,7 +54,6 @@ func (r *OffhoursScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		desiredState = "AWAKE"
 		log.Printf("[OG] ⏰ Wake cron schedule triggered at %s", currentMinute.Format("15:04"))
 	} else if schedule.Status.CurrentState == "" {
-		// Initial bootstrap
 		shouldSleep := nextWake.Before(nextSleep)
 		if shouldSleep {
 			desiredState = "SLEEPING"
@@ -74,49 +64,77 @@ func (r *OffhoursScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	stateChanged := false
 
-	// Apply Scale Down (SLEEP / MANUAL_SLEEP)
-	if desiredState == "SLEEPING" || desiredState == "MANUAL_SLEEP" {
-		if *deployment.Spec.Replicas > 0 {
-			schedule.Status.OriginalReplicas = *deployment.Spec.Replicas
-			zero := int32(0)
-			deployment.Spec.Replicas = &zero
-			if err := r.Update(ctx, &deployment); err != nil {
-				return ctrl.Result{}, err
-			}
-			log.Printf("[OG] 💤 Scaled DOWN %s/%s to 0 replicas (State: %s)", req.Namespace, depName.Name, desiredState)
+	// Map to keep track of already stored original replicas in status
+	originalReplicasMap := make(map[string]int32)
+	for _, ts := range schedule.Status.TargetStatuses {
+		originalReplicasMap[ts.Name] = ts.OriginalReplicas
+	}
+
+	var newTargetStatuses []v1alpha1.TargetStatus
+
+	for _, ref := range schedule.Spec.TargetRefs {
+		var deployment appsv1.Deployment
+		depName := types.NamespacedName{Namespace: req.Namespace, Name: ref.Name}
+		
+		if err := r.Get(ctx, depName, &deployment); err != nil {
+			log.Printf("[WARN] Deployment %s/%s not found. Skipping.", req.Namespace, ref.Name)
+			continue
 		}
-		if schedule.Status.CurrentState != desiredState {
-			schedule.Status.CurrentState = desiredState
-			stateChanged = true
+
+		currentReplicas := *deployment.Spec.Replicas
+		origReplicas := originalReplicasMap[ref.Name]
+
+		// Apply Scale Down
+		if desiredState == "SLEEPING" || desiredState == "MANUAL_SLEEP" {
+			if currentReplicas > 0 {
+				origReplicas = currentReplicas // Save state
+				zero := int32(0)
+				deployment.Spec.Replicas = &zero
+				if err := r.Update(ctx, &deployment); err != nil {
+					return ctrl.Result{}, err
+				}
+				log.Printf("[OG] 💤 Scaled DOWN %s/%s to 0 replicas", req.Namespace, ref.Name)
+				stateChanged = true
+			}
+			newTargetStatuses = append(newTargetStatuses, v1alpha1.TargetStatus{
+				Name:             ref.Name,
+				OriginalReplicas: origReplicas,
+			})
+		}
+
+		// Apply Scale Up
+		if desiredState == "AWAKE" || desiredState == "MANUAL_WAKE" {
+			target := origReplicas
+			if target == 0 {
+				target = 1 // Safe fallback
+			}
+			if currentReplicas != target {
+				deployment.Spec.Replicas = &target
+				if err := r.Update(ctx, &deployment); err != nil {
+					return ctrl.Result{}, err
+				}
+				log.Printf("[OG] ☀️ Scaled UP %s/%s to %d replicas", req.Namespace, ref.Name, target)
+				stateChanged = true
+			}
+			newTargetStatuses = append(newTargetStatuses, v1alpha1.TargetStatus{
+				Name:             ref.Name,
+				OriginalReplicas: origReplicas,
+			})
 		}
 	}
 
-	// Apply Scale Up (WAKE / MANUAL_WAKE)
-	if desiredState == "AWAKE" || desiredState == "MANUAL_WAKE" {
-		target := schedule.Status.OriginalReplicas
-		if target == 0 {
-			target = 1
-		}
-		if *deployment.Spec.Replicas != target {
-			deployment.Spec.Replicas = &target
-			if err := r.Update(ctx, &deployment); err != nil {
-				return ctrl.Result{}, err
-			}
-			log.Printf("[OG] ☀️ Scaled UP %s/%s to %d replicas (State: %s)", req.Namespace, depName.Name, target, desiredState)
-		}
-		if schedule.Status.CurrentState != desiredState {
-			schedule.Status.CurrentState = desiredState
-			stateChanged = true
-		}
+	if schedule.Status.CurrentState != desiredState {
+		schedule.Status.CurrentState = desiredState
+		stateChanged = true
 	}
 
 	if stateChanged {
+		schedule.Status.TargetStatuses = newTargetStatuses
 		if err := r.Status().Update(ctx, &schedule); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 
-	// Calculate next wake/sleep event to sleep the controller
 	nextEvent := nextSleep
 	if desiredState == "SLEEPING" || desiredState == "MANUAL_SLEEP" {
 		nextEvent = nextWake
