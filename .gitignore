@@ -1,0 +1,61 @@
+# -----------------------------------------------------------------------------
+# GO SPECIFIC
+# -----------------------------------------------------------------------------
+# Compiled binaries
+offhours-guard
+main
+*.exe
+*.exe"
+*.dll
+*.so
+*.dylib
+
+# Test binaries and coverage reports
+*.test
+*.out
+*.prof
+cpu.pprof
+mem.pprof
+
+# Dependency directories (uncomment if you use vendoring, but not recommended with Go modules)
+# vendor/
+
+# -----------------------------------------------------------------------------
+# IDEs & EDITORS
+# -----------------------------------------------------------------------------
+# JetBrains (GoLand, IntelliJ, etc.)
+.idea/
+*.iwu
+*.iws
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.history/
+*.code-workspace
+
+# Vim / Emacs
+*~
+*.swp
+*.swo
+
+# -----------------------------------------------------------------------------
+# SYSTEM FILES
+# -----------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# -----------------------------------------------------------------------------
+# LOCAL ENVIRONMENT / SECRETS
+# -----------------------------------------------------------------------------
+*.env
+*.env.local
+.env.*.local

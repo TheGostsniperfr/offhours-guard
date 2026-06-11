@@ -1,0 +1,19 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/thegostsniperfr/offhours-guard
+  pullPolicy: Always
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  port: 8082
+  metricsPort: 8083
+
+resources:
+  limits:
+    cpu: 100m
+    memory: 64Mi
+  requests:
+    cpu: 50m
+    memory: 32Mi

@@ -1,0 +1,77 @@
+name: Helm Chart Release
+
+on:
+  push:
+    tags:
+      - "helm-v*.*.*"
+
+jobs:
+  release-helm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/helm-v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Helm chart version: $VERSION"
+
+      - name: Update Chart version
+        run: |
+          sed -i "s/^version:.*/version: ${{ steps.version.outputs.version }}/" chart/Chart.yaml
+          cat chart/Chart.yaml
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: "latest"
+
+      - name: Package Helm chart
+        run: |
+          helm package chart -d .helm-releases
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Helm chart to OCI registry
+        run: |
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          helm push .helm-releases/offhours-guard-${{ steps.version.outputs.version }}.tgz oci://ghcr.io/${REPO_OWNER}/charts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: .helm-releases/*.tgz
+          generate_release_notes: true
+          body: |
+            ## Helm Chart Release v${{ steps.version.outputs.version }}
+
+            ### Installation
+
+            ```bash
+            # Install the chart
+            helm install offhours-guard oci://ghcr.io/${{ github.repository_owner }}/charts/offhours-guard --version ${{ steps.version.outputs.version }}
+            ```
+
+            ### Upgrade with latest image
+
+            ```bash
+            helm upgrade offhours-guard oci://ghcr.io/${{ github.repository_owner }}/charts/offhours-guard \
+              --version ${{ steps.version.outputs.version }} \
+              --set image.tag=latest
+            ```
+
+            ### Configuration
+
+            See [values.yaml](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/chart/values.yaml) for all configuration options.
