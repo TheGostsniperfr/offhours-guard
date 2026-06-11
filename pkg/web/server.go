@@ -130,25 +130,30 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	_ = s.templates.ExecuteTemplate(w, "index.html", cards)
 }
 
-func (s *Server) handleGatusProxy(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	name := r.PathValue("name")
-	namespace := r.PathValue("namespace")
+func (s *Server) checkRealAppHealth(w http.ResponseWriter, r *http.Request, name, namespace string) {
+	port := r.URL.Query().Get("port")
+	if port == "" {
+		port = "80"
+	}
 
-	schedule, err := s.findScheduleForTarget(ctx, namespace, name)
-	if err != nil {
-		s.checkRealAppHealth(w, r, name, namespace)
+	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:%s", name, namespace, port)
+	
+	if r.Host == "localhost:8082" || r.Host == "127.0.0.1:8082" {
+		url = fmt.Sprintf("https://%s.3istor.com", name)
+	}
+
+	clientHttp := http.Client{Timeout: 3 * time.Second}
+	resp, err := clientHttp.Get(url)
+
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil || resp.StatusCode >= 500 {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"status":"UNHEALTHY","error":"App is down or unreachable"}`))
 		return
 	}
 
-	if schedule.Status.CurrentState == "SLEEPING" || schedule.Status.CurrentState == "MANUAL_SLEEP" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"SLEEPING","info":"Service is stopped on schedule (Managed by Offhours-Guard)"}`))
-		return
-	}
-
-	s.checkRealAppHealth(w, r, name, namespace)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"HEALTHY","info":"App is running fine"}`))
 }
 
 func (s *Server) checkRealAppHealth(w http.ResponseWriter, r *http.Request, name, namespace string) {
