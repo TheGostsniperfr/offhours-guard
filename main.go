@@ -54,7 +54,7 @@ func main() {
 		Metrics: metricsserver.Options{
 			BindAddress: ":8083",
 		},
-		Cache: cacheOpts, # On injecte le cache filtré !
+		Cache: cacheOpts, 
 	})
 	if err != nil {
 		log.Fatalf("Unable to start manager: %v", err)
