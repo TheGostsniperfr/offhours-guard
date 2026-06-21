@@ -129,7 +129,6 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	_ = s.templates.ExecuteTemplate(w, "index.html", cards)
 }
 
-// 🟢 RESTAURÉ : Le handler du proxy Gatus
 func (s *Server) handleGatusProxy(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	name := r.PathValue("name")
@@ -151,26 +150,32 @@ func (s *Server) handleGatusProxy(w http.ResponseWriter, r *http.Request) {
 	s.checkRealAppHealth(w, r, name, namespace)
 }
 
-// 🟢 UNIQUE : Le check de santé avec extraction du port (?port=)
 func (s *Server) checkRealAppHealth(w http.ResponseWriter, r *http.Request, name, namespace string) {
 	port := r.URL.Query().Get("port")
 	if port == "" {
 		port = "80"
 	}
-
-	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:%s", name, namespace, port)
-	
-	if r.Host == "localhost:8082" || r.Host == "127.0.0.1:8082" {
-		url = fmt.Sprintf("https://%s.3istor.com", name)
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		path = "/"
 	}
 
-	clientHttp := http.Client{Timeout: 3 * time.Second}
-	resp, err := clientHttp.Get(url)
+	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:%s%s", name, namespace, port, path)
 
-	w.Header().Set("Content-Type", "application/json")
-	if err != nil || resp.StatusCode >= 500 {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte(`{"status":"UNHEALTHY","error":"App is down or unreachable"}`))
+		return
+	}
+	defer resp.Body.Close()
+
+	w.Header().Set("Content-Type", "application/json")
+	if resp.StatusCode >= 500 {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"status":"UNHEALTHY","error":"App returned 5xx"}`))
 		return
 	}
 
@@ -191,14 +196,24 @@ func (s *Server) triggerManualAction(w http.ResponseWriter, r *http.Request, act
 	name := r.PathValue("name")
 	namespace := r.PathValue("namespace")
 
-	schedule, err := s.findScheduleForTarget(ctx, namespace, name)
+	var schedule v1alpha1.OffhoursSchedule
+	
+	err := s.k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &schedule)
+	
 	if err == nil {
 		if action == "sleep" {
 			schedule.Status.CurrentState = "MANUAL_SLEEP"
+			log.Printf("[WEB] Manual SLEEP requested for schedule %s/%s", namespace, name)
 		} else {
 			schedule.Status.CurrentState = "MANUAL_WAKE"
+			log.Printf("[WEB] Manual WAKE requested for schedule %s/%s", namespace, name)
 		}
-		_ = s.k8sClient.Status().Update(ctx, schedule)
+		
+		if err := s.k8sClient.Status().Update(ctx, &schedule); err != nil {
+			log.Printf("[ERROR] Failed to update status for schedule %s/%s: %v", namespace, name, err)
+		}
+	} else {
+		log.Printf("[ERROR] Schedule %s/%s not found for manual action: %v", namespace, name, err)
 	}
 
 	time.Sleep(300 * time.Millisecond)
