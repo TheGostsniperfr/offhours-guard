@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
+	"strings"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/thegostsniperfr/offhours-guard/api/v1alpha1"
 	"github.com/thegostsniperfr/offhours-guard/internal/controller"
@@ -31,7 +34,7 @@ func main() {
 	scheme.AddKnownTypes(v1alpha1.GroupVersion, &v1alpha1.OffhoursSchedule{}, &v1alpha1.OffhoursScheduleList{})
 	metav1.AddToGroupVersion(scheme, v1alpha1.GroupVersion)
 
-	projectName := os.Getenv("PROJECT_NAME")
+	projectName := getProjectNameFromNamespace()
 	var cacheOpts cache.Options
 
 	if projectName != "" {
@@ -88,4 +91,37 @@ func main() {
 		log.Fatalf("Problem running manager: %v", err)
 		os.Exit(1)
 	}
+}
+
+func getProjectNameFromNamespace() string {
+	// 1. Read the current namespace injected by Kubernetes into the pod
+	nsBytes, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+	if err != nil {
+		log.Println("[INFO] Running outside the cluster or unable to read namespace file, skipping auto-detection.")
+		return ""
+	}
+	namespace := strings.TrimSpace(string(nsBytes))
+
+	// 2. Create a temporary Kubernetes client to query the API
+	config, err := ctrl.GetConfig()
+	if err != nil {
+		log.Printf("[WARN] Failed to get Kubernetes config: %v", err)
+		return ""
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		log.Printf("[WARN] Failed to create Kubernetes client: %v", err)
+		return ""
+	}
+
+	// 3. Retrieve metadata for the current namespace
+	ns, err := clientset.CoreV1().Namespaces().Get(context.Background(), namespace, metav1.GetOptions{})
+	if err != nil {
+		log.Printf("[WARN] Failed to fetch metadata for namespace %s: %v", namespace, err)
+		return ""
+	}
+
+	// 4. Read the "project" label
+	projectName := ns.Labels["project"]
+	return projectName
 }
