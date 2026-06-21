@@ -9,7 +9,7 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "offhours-guard.fullname" . }}-role
+  name: {{ include "offhours-guard.fullname" . }}-{{ .Release.Namespace }}-role
 rules:
   - apiGroups: ["apps"]
     resources: ["deployments", "deployments/scale"]
@@ -17,11 +17,15 @@ rules:
   - apiGroups: ["guard.3istor.com"]
     resources: ["offhoursschedules", "offhoursschedules/status"]
     verbs: ["get", "list", "watch", "update", "patch"]
+    
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "offhours-guard.fullname" . }}-rolebinding
+  name: {{ include "offhours-guard.fullname" . }}-{{ .Release.Namespace }}-rolebinding
 subjects:
   - kind: ServiceAccount
     name: {{ include "offhours-guard.fullname" . }}
@@ -29,4 +33,4 @@ subjects:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "offhours-guard.fullname" . }}-role
+  name: {{ include "offhours-guard.fullname" . }}-{{ .Release.Namespace }}-role
