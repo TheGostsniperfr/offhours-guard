@@ -11,15 +11,15 @@
 
 ## What it does
 
-Most non-production Kubernetes environments run 24/7 for no reason: nobody is testing against staging at 3am. Offhours-Guard is a Go operator, built around its own `OffhoursSchedule` CRD, that automatically scales those environments down to 0 replicas outside working hours and restores them on wake-up — with a one-click manual override when you need one right now.
+Most non-production Kubernetes environments run 24/7 for no reason: nobody is testing against staging at 3am. Offhours-Guard is a Go operator, built around its own `OffhoursSchedule` CRD, that automatically scales those environments down to 0 replicas outside working hours and restores them on wake-up, with a one-click manual override when you need one right now.
 
 Deployed on most of the [Cloud Native Platform](https://about.arffornia.com/Projects/CNP)'s non-critical applications, it cuts up to **-70% cost** on non-production environments and reduces nightly activity from 24/7 to a 1am-7am window.
 
 ## How it works
 
-- **Reconciler, not a cron job.** The controller scales deployments down to 0 replicas at the scheduled time, but remembers the original replica count so wake-up restores the exact prior state — not a blind "1 replica" default.
+- **Reconciler, not a cron job.** The controller scales deployments down to 0 replicas at the scheduled time, but remembers the original replica count so wake-up restores the exact prior state, not a blind "1 replica" default.
 - **`OffhoursSchedule` CRD.** Each app declares its sleep/wake schedule as cron expressions with a timezone, targeting one or more workloads.
-- **Web dashboard.** A Tailwind + HTMX UI lists every managed app with its state (Active / Asleep), current vs. original replica count, and the cron schedule — with a one-click button to force a wake-up or a manual sleep, auto-refreshing every 15 seconds.
+- **Web dashboard.** A Tailwind + HTMX UI lists every managed app with its state (Active / Asleep), current vs. original replica count, and the cron schedule, with a one-click button to force a wake-up or a manual sleep, auto-refreshing every 15 seconds.
 - **Honest monitoring.** A service that's intentionally stopped shouldn't fire an alert as if it had crashed. Offhours-Guard exposes an endpoint that health-check tools (e.g. [Gatus](https://github.com/TwiN/gatus)) can query instead of the real service: it returns `200 OK` with a `SLEEPING (managed by Offhours-Guard)` status during the sleep window, and faithfully proxies the app's real status outside it.
 
 ## Installation
