@@ -9,5 +9,6 @@ FROM alpine:3.24
 RUN apk --no-cache add ca-certificates tzdata
 WORKDIR /
 COPY --from=builder /app/offhours-guard /offhours-guard
+USER 65532:65532
 EXPOSE 8082 8083
 ENTRYPOINT ["/offhours-guard"]
