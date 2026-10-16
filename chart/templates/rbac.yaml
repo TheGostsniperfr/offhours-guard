@@ -14,6 +14,11 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments", "deployments/scale"]
     verbs: ["get", "list", "watch", "update", "patch"]
+  # An Argo Rollout that took a Deployment over (workloadRef) holds its pods:
+  # that is what gets scaled.
+  - apiGroups: ["argoproj.io"]
+    resources: ["rollouts"]
+    verbs: ["get", "list", "patch"]
   - apiGroups: ["guard.3istor.com"]
     resources: ["offhoursschedules", "offhoursschedules/status"]
     verbs: ["get", "list", "watch", "update", "patch"]
