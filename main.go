@@ -67,6 +67,7 @@ func main() {
 	// 4. Register our Controller
 	reconciler := &controller.OffhoursScheduleReconciler{
 		Client:     mgr.GetClient(),
+		APIReader:  mgr.GetAPIReader(),
 		CronParser: cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow),
 	}
 
