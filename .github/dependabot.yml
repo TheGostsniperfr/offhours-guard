@@ -40,3 +40,11 @@ updates:
     labels:
       - "dependencies"
       - "docker"
+  - package-ecosystem: "helm"
+    directory: "/chart"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 5
+    commit-message:
+      prefix: "chore(deps)"
