@@ -43,6 +43,19 @@ spec:
       name: my-app
 ```
 
+## Metrics
+
+Served on `:8083/metrics` (controller-runtime endpoint). `target` is `<kind>/<name>`, e.g. `Deployment/my-app`. The chart annotates the pod for Prometheus/Alloy scraping.
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `offhours_target_asleep` | gauge | `namespace`, `schedule`, `target` | 1 while the target is scaled down by the controller, else 0 |
+| `offhours_target_original_replicas` | gauge | `namespace`, `schedule`, `target` | Replicas the target had before sleeping, restored on wake |
+| `offhours_target_asleep_seconds_total` | counter | `namespace`, `schedule`, `target` | Cumulative seconds spent asleep, credited at each reconcile (resets on restart) |
+| `offhours_transitions_total` | counter | `namespace`, `schedule`, `direction`, `result` | Sleep/wake attempts, `direction` is `sleep` or `wake`, `result` is `success` or `error` |
+
+Gauge series are removed when a schedule is deleted or a target leaves it.
+
 ## Stack
 
 Go (`controller-runtime`) · Kubernetes CRD & Reconciler · Helm · Docker · GitHub Actions CI, image and chart published continuously to `ghcr.io`.

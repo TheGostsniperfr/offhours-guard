@@ -23,6 +23,9 @@ type OffhoursScheduleReconciler struct {
 func (r *OffhoursScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var schedule v1alpha1.OffhoursSchedule
 	if err := r.Get(ctx, req.NamespacedName, &schedule); err != nil {
+		if apierrors.IsNotFound(err) {
+			tracker.forgetSchedule(req.Namespace, req.Name)
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -73,6 +76,7 @@ func (r *OffhoursScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 
 	var newTargetStatuses []v1alpha1.TargetStatus
+	observedTargets := map[string]struct{}{}
 
 	for _, ref := range schedule.Spec.TargetRefs {
 		target, err := r.resolveWorkload(ctx, req.Namespace, ref.Name)
@@ -84,6 +88,8 @@ func (r *OffhoursScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			return ctrl.Result{}, err
 		}
 
+		metricTarget := targetName(target.kind(), ref.Name)
+		observedTargets[metricTarget] = struct{}{}
 		currentReplicas := target.replicas()
 		origReplicas := originalReplicasMap[ref.Name]
 
@@ -91,12 +97,15 @@ func (r *OffhoursScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		if desiredState == "SLEEPING" || desiredState == "MANUAL_SLEEP" {
 			if currentReplicas > 0 {
 				origReplicas = currentReplicas // Save state
-				if err := target.scale(ctx, r.Client, 0); err != nil {
+				err := target.scale(ctx, r.Client, 0)
+				recordTransition(req.Namespace, req.Name, "sleep", err)
+				if err != nil {
 					return ctrl.Result{}, err
 				}
 				log.Printf("[OG] 💤 Scaled DOWN %s %s/%s to 0 replicas", target.kind(), req.Namespace, ref.Name)
 				stateChanged = true
 			}
+			tracker.observe(req.Namespace, req.Name, metricTarget, true, origReplicas, time.Now())
 			newTargetStatuses = append(newTargetStatuses, v1alpha1.TargetStatus{
 				Name:             ref.Name,
 				OriginalReplicas: origReplicas,
@@ -110,18 +119,23 @@ func (r *OffhoursScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 				want = 1 // Safe fallback
 			}
 			if currentReplicas != want {
-				if err := target.scale(ctx, r.Client, want); err != nil {
+				err := target.scale(ctx, r.Client, want)
+				recordTransition(req.Namespace, req.Name, "wake", err)
+				if err != nil {
 					return ctrl.Result{}, err
 				}
 				log.Printf("[OG] ☀️ Scaled UP %s %s/%s to %d replicas", target.kind(), req.Namespace, ref.Name, want)
 				stateChanged = true
 			}
+			tracker.observe(req.Namespace, req.Name, metricTarget, false, origReplicas, time.Now())
 			newTargetStatuses = append(newTargetStatuses, v1alpha1.TargetStatus{
 				Name:             ref.Name,
 				OriginalReplicas: origReplicas,
 			})
 		}
 	}
+
+	tracker.prune(req.Namespace, req.Name, observedTargets)
 
 	if schedule.Status.CurrentState != desiredState {
 		schedule.Status.CurrentState = desiredState
