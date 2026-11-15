@@ -8,6 +8,21 @@ import (
 
 var GroupVersion = schema.GroupVersion{Group: "guard.3istor.com", Version: "v1alpha1"}
 
+const (
+	StateAwake       = "AWAKE"
+	StateSleeping    = "SLEEPING"
+	StateManualSleep = "MANUAL_SLEEP"
+	StateManualWake  = "MANUAL_WAKE"
+	// StatePaused keeps the targets at zero until someone wakes them by hand:
+	// the sleep and wake crons no longer move it.
+	StatePaused = "PAUSED"
+)
+
+// IsAsleep reports whether a state keeps the targets scaled to zero.
+func IsAsleep(state string) bool {
+	return state == StateSleeping || state == StateManualSleep || state == StatePaused
+}
+
 type TargetRef struct {
 	Name string `json:"name"`
 }

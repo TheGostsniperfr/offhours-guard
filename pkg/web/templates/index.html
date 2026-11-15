@@ -47,7 +47,7 @@
                         </div>
                         
                         <!-- Dynamic Status Badge -->
-                        {{ if or (eq .State "SLEEPING") (eq .State "MANUAL_SLEEP") }}
+                        {{ if or (eq .State "SLEEPING") (eq .State "MANUAL_SLEEP") (eq .State "PAUSED") }}
                         <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-800/80 text-slate-400 border border-slate-700 flex items-center space-x-1.5">
                             <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
                             <span>Asleep</span>
@@ -91,7 +91,7 @@
 
                 <!-- Action Footer -->
                 <div class="bg-slate-950/40 border-t border-slate-800/60 p-4 flex space-x-3">
-                    {{ if or (eq .State "SLEEPING") (eq .State "MANUAL_SLEEP") }}
+                    {{ if or (eq .State "SLEEPING") (eq .State "MANUAL_SLEEP") (eq .State "PAUSED") }}
                     <button hx-post="/apps/{{ .Namespace }}/{{ .ScheduleName }}/wake" 
                             hx-target="body"
                             class="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 text-sm font-bold py-2.5 px-4 rounded-lg shadow-lg hover:shadow-emerald-500/10 transition duration-300 flex items-center justify-center space-x-1">
