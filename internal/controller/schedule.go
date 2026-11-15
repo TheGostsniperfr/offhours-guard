@@ -52,18 +52,20 @@ func (r *OffhoursScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	desiredState := schedule.Status.CurrentState
 
-	if sleepTriggered {
-		desiredState = "SLEEPING"
+	switch {
+	case desiredState == v1alpha1.StatePaused:
+		// Only a manual wake ends a pause: both crons are ignored.
+	case sleepTriggered:
+		desiredState = v1alpha1.StateSleeping
 		log.Printf("[OG] ⏰ Sleep cron schedule triggered at %s", currentMinute.Format("15:04"))
-	} else if wakeTriggered {
-		desiredState = "AWAKE"
+	case wakeTriggered:
+		desiredState = v1alpha1.StateAwake
 		log.Printf("[OG] ⏰ Wake cron schedule triggered at %s", currentMinute.Format("15:04"))
-	} else if schedule.Status.CurrentState == "" {
-		shouldSleep := nextWake.Before(nextSleep)
-		if shouldSleep {
-			desiredState = "SLEEPING"
+	case schedule.Status.CurrentState == "":
+		if nextWake.Before(nextSleep) {
+			desiredState = v1alpha1.StateSleeping
 		} else {
-			desiredState = "AWAKE"
+			desiredState = v1alpha1.StateAwake
 		}
 	}
 
@@ -94,7 +96,7 @@ func (r *OffhoursScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		origReplicas := originalReplicasMap[ref.Name]
 
 		// Apply Scale Down
-		if desiredState == "SLEEPING" || desiredState == "MANUAL_SLEEP" {
+		if v1alpha1.IsAsleep(desiredState) {
 			if currentReplicas > 0 {
 				origReplicas = currentReplicas // Save state
 				err := target.scale(ctx, r.Client, 0)
@@ -113,7 +115,7 @@ func (r *OffhoursScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 
 		// Apply Scale Up
-		if desiredState == "AWAKE" || desiredState == "MANUAL_WAKE" {
+		if !v1alpha1.IsAsleep(desiredState) {
 			want := origReplicas
 			if want == 0 {
 				want = 1 // Safe fallback
@@ -149,8 +151,11 @@ func (r *OffhoursScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 	}
 
+	if desiredState == v1alpha1.StatePaused {
+		return ctrl.Result{}, nil
+	}
 	nextEvent := nextSleep
-	if desiredState == "SLEEPING" || desiredState == "MANUAL_SLEEP" {
+	if v1alpha1.IsAsleep(desiredState) {
 		nextEvent = nextWake
 	}
 	timeUntilNextEvent := nextEvent.Sub(now)

@@ -152,3 +152,52 @@ func TestWake_RestoresTheDeployment_WhenNoRolloutReferencesIt(t *testing.T) {
 		t.Fatalf("got deployment=%d, want 3", deploymentReplicas)
 	}
 }
+
+func TestPause_KeepsTheDeploymentAtZero_WhenTheWakeCronFires(t *testing.T) {
+	// Arrange
+	paused := schedule(v1alpha1.StatePaused, 2)
+	paused.Spec.WakeAt = "* * * * *"
+
+	// Act
+	c := reconcile(t, paused, deployment(2))
+
+	// Assert
+	deploymentReplicas, _ := replicasOf(t, c)
+	if deploymentReplicas != 0 {
+		t.Fatalf("got deployment=%d, want 0", deploymentReplicas)
+	}
+}
+
+func TestManualWake_EndsAPause_AndRestoresTheOriginalReplicas(t *testing.T) {
+	// Arrange
+	c := reconcile(t, schedule(v1alpha1.StateManualWake, 2), deployment(0))
+
+	// Act
+	deploymentReplicas, _ := replicasOf(t, c)
+
+	// Assert
+	if deploymentReplicas != 2 {
+		t.Fatalf("got deployment=%d, want 2", deploymentReplicas)
+	}
+}
+
+func TestSleep_ScalesTheStatefulSet_WhenNoDeploymentHasThatName(t *testing.T) {
+	// Arrange
+	replicas := int32(1)
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: namespace},
+		Spec:       appsv1.StatefulSetSpec{Replicas: &replicas},
+	}
+	c := reconcile(t, schedule(v1alpha1.StateManualSleep, 0), sts)
+
+	// Act
+	var got appsv1.StatefulSet
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: namespace, Name: "web"}, &got); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if *got.Spec.Replicas != 0 {
+		t.Fatalf("got statefulset=%d, want 0", *got.Spec.Replicas)
+	}
+}

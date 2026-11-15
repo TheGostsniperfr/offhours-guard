@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -37,6 +38,22 @@ func (d deploymentWorkload) scale(ctx context.Context, c client.Client, replicas
 	return c.Update(ctx, d.obj)
 }
 
+type statefulSetWorkload struct{ obj *appsv1.StatefulSet }
+
+func (s statefulSetWorkload) kind() string { return "StatefulSet" }
+
+func (s statefulSetWorkload) replicas() int32 {
+	if s.obj.Spec.Replicas == nil {
+		return 1
+	}
+	return *s.obj.Spec.Replicas
+}
+
+func (s statefulSetWorkload) scale(ctx context.Context, c client.Client, replicas int32) error {
+	s.obj.Spec.Replicas = &replicas
+	return c.Update(ctx, s.obj)
+}
+
 type rolloutWorkload struct{ obj *unstructured.Unstructured }
 
 func (r rolloutWorkload) kind() string { return "Rollout" }
@@ -58,7 +75,7 @@ func (r rolloutWorkload) scale(ctx context.Context, c client.Client, replicas in
 }
 
 // resolveWorkload returns the Argo Rollout that took the Deployment over through
-// workloadRef, else the Deployment. Under a Rollout the Deployment stays at 0
+// workloadRef, else the Deployment, else the StatefulSet of that name. Under a Rollout the Deployment stays at 0
 // replicas: scaling it would never put the app to sleep and would start an
 // extra pod on wake.
 func (r *OffhoursScheduleReconciler) resolveWorkload(ctx context.Context, namespace, name string) (workload, error) {
@@ -79,9 +96,18 @@ func (r *OffhoursScheduleReconciler) resolveWorkload(ctx context.Context, namesp
 		}
 	}
 
+	key := types.NamespacedName{Namespace: namespace, Name: name}
 	var deployment appsv1.Deployment
-	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &deployment); err != nil {
+	err = r.Get(ctx, key, &deployment)
+	if err == nil {
+		return deploymentWorkload{obj: &deployment}, nil
+	}
+	if !apierrors.IsNotFound(err) {
 		return nil, err
 	}
-	return deploymentWorkload{obj: &deployment}, nil
+	var statefulSet appsv1.StatefulSet
+	if err := r.Get(ctx, key, &statefulSet); err != nil {
+		return nil, err
+	}
+	return statefulSetWorkload{obj: &statefulSet}, nil
 }

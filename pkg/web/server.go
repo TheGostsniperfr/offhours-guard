@@ -140,7 +140,7 @@ func (s *Server) handleGatusProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if schedule.Status.CurrentState == "SLEEPING" || schedule.Status.CurrentState == "MANUAL_SLEEP" {
+	if v1alpha1.IsAsleep(schedule.Status.CurrentState) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"SLEEPING","info":"Service is stopped on schedule (Managed by Offhours-Guard)"}`))

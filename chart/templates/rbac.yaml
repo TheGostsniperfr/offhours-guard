@@ -12,7 +12,7 @@ metadata:
   name: {{ include "offhours-guard.fullname" . }}-{{ .Release.Namespace }}-role
 rules:
   - apiGroups: ["apps"]
-    resources: ["deployments", "deployments/scale"]
+    resources: ["deployments", "deployments/scale", "statefulsets", "statefulsets/scale"]
     verbs: ["get", "list", "watch", "update", "patch"]
   # An Argo Rollout that took a Deployment over (workloadRef) holds its pods:
   # that is what gets scaled.
