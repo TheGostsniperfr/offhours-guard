@@ -43,6 +43,12 @@ spec:
       name: my-app
 ```
 
+## Access control
+
+The dashboard and the sleep/wake routes expect the Gateway's OIDC filter in front of them and verify the forwarded access token themselves: anonymous callers get `401`, a token without one of `auth.allowedGroups` gets `403`. With `auth.issuer` empty those routes answer `503`. Sleep and wake also require the `HX-Request` header the dashboard sends, so a cross-site form cannot trigger them.
+
+`/health/{namespace}/{name}` stays open for in-cluster health checks. It only probes the Service `{name}` in `{namespace}`, on a port that Service declares, and when the guard runs for a project, only in namespaces labelled `cnp.3istor.com/project=<project>`.
+
 ## Metrics
 
 Served on `:8083/metrics` (controller-runtime endpoint). `target` is `<kind>/<name>`, e.g. `Deployment/my-app`. The chart annotates the pod for Prometheus/Alloy scraping.

@@ -5,6 +5,17 @@ image:
   pullPolicy: Always
   tag: "latest"
 
+# Verifies the access token the Gateway's OIDC filter forwards. Empty issuer
+# keeps the dashboard and the sleep/wake routes closed (503); /health stays
+# open for Gatus.
+auth:
+  issuer: ""
+  # Defaults to Keycloak's <issuer>/protocol/openid-connect/certs.
+  jwksURL: ""
+  allowedGroups:
+    - project-members
+    - project-admins
+
 service:
   type: ClusterIP
   port: 8082
