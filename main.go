@@ -78,7 +78,7 @@ func main() {
 
 	// 5. Start our Web UI Server
 	ctx := ctrl.SetupSignalHandler()
-	webServer := web.NewServer(mgr.GetClient(), mgr.GetAPIReader(), authenticatorFromEnv(ctx), projectName)
+	webServer := web.NewServer(mgr.GetClient(), mgr.GetAPIReader(), authenticatorFromEnv(ctx, projectName), projectName)
 	
 	go func() {
 		if err := webServer.Start(ctx, ":8082"); err != nil {
@@ -95,11 +95,19 @@ func main() {
 }
 
 // authenticatorFromEnv returns nil when OIDC_ISSUER is unset, which keeps the
-// dashboard and the sleep/wake routes closed.
-func authenticatorFromEnv(ctx context.Context) *web.Authenticator {
+// dashboard and the sleep/wake routes closed. "{project}" in the issuer is
+// replaced by the detected project, so one static value serves every project's
+// realm (Helm cannot template a dependency's values).
+func authenticatorFromEnv(ctx context.Context, projectName string) *web.Authenticator {
 	issuer := os.Getenv("OIDC_ISSUER")
+	if strings.Contains(issuer, "{project}") {
+		if projectName == "" {
+			issuer = ""
+		}
+		issuer = strings.ReplaceAll(issuer, "{project}", projectName)
+	}
 	if issuer == "" {
-		log.Println("[WARN] OIDC_ISSUER is not set: the dashboard and the sleep/wake routes answer 503.")
+		log.Println("[WARN] OIDC_ISSUER is not set or names no project: the dashboard and the sleep/wake routes answer 503.")
 		return nil
 	}
 

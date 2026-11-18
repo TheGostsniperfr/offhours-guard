@@ -7,7 +7,8 @@ image:
 
 # Verifies the access token the Gateway's OIDC filter forwards. Empty issuer
 # keeps the dashboard and the sleep/wake routes closed (503); /health stays
-# open for Gatus.
+# open for Gatus. "{project}" is replaced by the project detected from the
+# release namespace's "project" label.
 auth:
   issuer: ""
   # Defaults to Keycloak's <issuer>/protocol/openid-connect/certs.
