@@ -214,7 +214,7 @@ func (s *Server) healthTargetURL(ctx context.Context, namespace, name, portParam
 
 	port := svc.Spec.Ports[0].Port
 	if portParam != "" {
-		requested, err := strconv.Atoi(portParam)
+		requested, err := strconv.ParseInt(portParam, 10, 32)
 		if err != nil || !serviceDeclaresPort(&svc, int32(requested)) {
 			return "", fmt.Errorf("%w: port %q is not declared by service %s/%s", errHealthTargetRejected, portParam, namespace, name)
 		}
