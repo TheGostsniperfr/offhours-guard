@@ -26,6 +26,13 @@ spec:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: OIDC_ISSUER
+              value: {{ .Values.auth.issuer | quote }}
+            - name: OIDC_JWKS_URL
+              value: {{ .Values.auth.jwksURL | quote }}
+            - name: OIDC_ALLOWED_GROUPS
+              value: {{ join "," .Values.auth.allowedGroups | quote }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           ports:

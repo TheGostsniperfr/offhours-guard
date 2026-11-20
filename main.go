@@ -77,8 +77,8 @@ func main() {
 	}
 
 	// 5. Start our Web UI Server
-	webServer := web.NewServer(mgr.GetClient())
 	ctx := ctrl.SetupSignalHandler()
+	webServer := web.NewServer(mgr.GetClient(), mgr.GetAPIReader(), authenticatorFromEnv(ctx, projectName), projectName)
 	
 	go func() {
 		if err := webServer.Start(ctx, ":8082"); err != nil {
@@ -92,6 +92,37 @@ func main() {
 		log.Fatalf("Problem running manager: %v", err)
 		os.Exit(1)
 	}
+}
+
+// authenticatorFromEnv returns nil when OIDC_ISSUER is unset, which keeps the
+// dashboard and the sleep/wake routes closed. "{project}" in the issuer is
+// replaced by the detected project, so one static value serves every project's
+// realm (Helm cannot template a dependency's values).
+func authenticatorFromEnv(ctx context.Context, projectName string) *web.Authenticator {
+	issuer := os.Getenv("OIDC_ISSUER")
+	if strings.Contains(issuer, "{project}") {
+		if projectName == "" {
+			issuer = ""
+		}
+		issuer = strings.ReplaceAll(issuer, "{project}", projectName)
+	}
+	if issuer == "" {
+		log.Println("[WARN] OIDC_ISSUER is not set or names no project: the dashboard and the sleep/wake routes answer 503.")
+		return nil
+	}
+
+	groups := []string{"project-members", "project-admins"}
+	if raw := os.Getenv("OIDC_ALLOWED_GROUPS"); raw != "" {
+		groups = nil
+		for _, group := range strings.Split(raw, ",") {
+			if group = strings.TrimSpace(group); group != "" {
+				groups = append(groups, group)
+			}
+		}
+	}
+
+	log.Printf("[INFO] Dashboard restricted to groups %v of %s", groups, issuer)
+	return web.NewKeycloakAuthenticator(ctx, issuer, os.Getenv("OIDC_JWKS_URL"), groups)
 }
 
 func getProjectNameFromNamespace() string {
