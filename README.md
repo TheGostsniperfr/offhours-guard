@@ -51,7 +51,7 @@ The dashboard and the sleep/wake routes expect the Gateway's OIDC filter in fron
 
 ## Metrics
 
-Served on `:8083/metrics` (controller-runtime endpoint). `target` is `<kind>/<name>`, e.g. `Deployment/my-app`. The chart annotates the pod for Prometheus/Alloy scraping.
+Served on `:8083/metrics` (controller-runtime endpoint). `target` is `<kind>/<name>`, e.g. `Deployment/my-app`. The chart annotates the pod with `prometheus.io/*`, which any annotation-based Prometheus scrape picks up.
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
